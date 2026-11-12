@@ -254,6 +254,30 @@
       text-decoration: underline;
       text-underline-offset: 0.15rem;
     }
+    .views { display: flex; gap: 0.4rem; margin-top: 0.8rem; }
+    .group {
+      margin: 1.05rem 0 0.15rem;
+      font-size: 1rem;
+    }
+    .group:first-child { margin-top: 0; }
+    .check {
+      display: flex;
+      gap: 0.75rem;
+      align-items: flex-start;
+      padding: 0.7rem 0;
+      border-top: 1px solid var(--line);
+      overflow-wrap: anywhere;
+    }
+    .check input {
+      width: 1.3rem;
+      height: 1.3rem;
+      margin: 0.15rem 0 0;
+      accent-color: #0e6b45;
+      flex: 0 0 auto;
+    }
+    .check.done span { color: var(--muted); }
+    body.repaso { --dock: 0px; }
+    #card[hidden], #repaso[hidden] { display: none !important; }
     @media (max-width: 640px) {
       :root { --dock: 0px; }
       .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -277,12 +301,16 @@
   <div class="wrap">
     <header>
       <h1>Práctica de capitán de yate</h1>
-      <p class="lede">Marca una opción y verás la respuesta de la plantilla y el porqué, según los apuntes. En cálculo entran los husos y, con el dato del almanaque ya escrito, el paso del Sol, el horario en el lugar y la corrección total.</p>
+      <p class="lede" id="lede">Marca una opción y verás la respuesta de la plantilla y el porqué, según los apuntes. En cálculo entran los husos y, con el dato del almanaque ya escrito, el paso del Sol, el horario en el lugar y la corrección total. Si aciertas, la pregunta se oculta. Si fallas, vuelve después de 6 preguntas.</p>
+      <div class="views" id="views" role="group" aria-label="Zona">
+        <button type="button" class="chip" data-view="practica">Práctica</button>
+        <button type="button" class="chip" data-view="repaso">Repaso</button>
+      </div>
       <div class="stats" aria-live="polite">
-        <div class="stat ok"><b id="n-ok">0</b><span>Aciertos</span></div>
-        <div class="stat bad"><b id="n-bad">0</b><span>Fallos</span></div>
-        <div class="stat"><b id="n-left">0</b><span>Pendientes</span></div>
-        <div class="stat"><b id="n-all">0</b><span>En el mazo</span></div>
+        <div class="stat ok"><b id="n-ok">0</b><span id="l-ok">Aciertos</span></div>
+        <div class="stat" id="stat-bad"><b id="n-bad">0</b><span id="l-bad">Fallos</span></div>
+        <div class="stat"><b id="n-left">0</b><span id="l-left">Pendientes</span></div>
+        <div class="stat"><b id="n-all">0</b><span id="l-all">En el mazo</span></div>
       </div>
       <div class="mods" id="mods" role="group" aria-label="Módulo"></div>
     </header>
@@ -303,6 +331,13 @@
       <div class="result" id="result" hidden></div>
       <p class="progress" id="progress"></p>
     </article>
+    <section class="card" id="repaso" hidden>
+      <p class="kicker" id="repaso-kicker"></p>
+      <div id="repaso-list"></div>
+      <div class="tools">
+        <button type="button" id="reset-repaso">Borrar marcas del repaso</button>
+      </div>
+    </section>
   </div>
   <script src="banco.js"></script>
   <script>
@@ -313,8 +348,10 @@
       ["Meteorología", "Meteorología"],
       ["Inglés", "Inglés"]
     ];
-    const STORE = "cy-practica-v1";
+    const STORE = "cy-practica-v2";
+    const AGAIN_GAP = 6;
     const bank = Array.isArray(window.BANK) ? window.BANK : [];
+    const byId = new Map(bank.map((item) => [item.id, item]));
 
     const state = load();
     const mods = document.getElementById("mods");
@@ -331,45 +368,232 @@
       button.addEventListener("click", () => {
         state.module = id;
         state.index = 0;
+        state.queue = [];
         save();
-        render();
+        show();
       });
       mods.appendChild(button);
     });
 
-    document.getElementById("prev").addEventListener("click", () => move(-1));
-    document.getElementById("next").addEventListener("click", () => move(1));
+    document.getElementById("prev").addEventListener("click", () => {
+      if (state.queue.length < 2) return;
+      state.index = (state.index - 1 + state.queue.length) % state.queue.length;
+      save();
+      render();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+    document.getElementById("next").addEventListener("click", () => {
+      grade();
+      save();
+      render();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
     document.getElementById("shuffle").addEventListener("click", () => {
       state.seed = (state.seed + 1) >>> 0;
+      state.queue = [];
       state.index = 0;
       save();
       render();
     });
     document.getElementById("reset").addEventListener("click", () => {
-      if (!window.confirm("Se borran los aciertos y los fallos de este navegador.")) return;
-      state.picks = {};
+      if (!window.confirm("Vuelven todas las preguntas, también las que ya habías acertado.")) return;
+      state.cards = {};
+      state.queue = [];
       state.index = 0;
       save();
       render();
     });
 
-    render();
+    const REVIEW_STORE = "cy-repaso-v1";
+    const LEDE = {
+      practica: document.getElementById("lede").textContent,
+      repaso: "Marca lo que ya te sabes. Son datos que el examen de código 01 vuelve a preguntar."
+    };
+    let view = localStorage.getItem("cy-vista") === "repaso" ? "repaso" : "practica";
+    let known = new Set();
+    try {
+      const saved = JSON.parse(localStorage.getItem(REVIEW_STORE) || "[]");
+      if (Array.isArray(saved)) known = new Set(saved.filter((id) => typeof id === "string"));
+    } catch (error) {
+      known = new Set();
+    }
 
-    function load() {
-      try {
-        const raw = JSON.parse(localStorage.getItem(STORE) || "");
-        if (raw && typeof raw === "object") {
-          return {
-            module: MODULES.some(([id]) => id === raw.module) ? raw.module : "Todas",
-            seed: Number.isInteger(raw.seed) ? raw.seed : 7,
-            index: Number.isInteger(raw.index) ? raw.index : 0,
-            picks: raw.picks && typeof raw.picks === "object" ? raw.picks : {}
-          };
+    const REVIEW = [
+      ["polar-4", "Teoría de navegación", "Estrellas y constelaciones", "Merak y Dubhe son los punteros de la Osa Mayor. Prolongados unas 4 veces señalan la Polar."],
+      ["polar-osa", "Teoría de navegación", "Estrellas y constelaciones", "Esos punteros son de la Osa Mayor. La Osa Menor es el distractor habitual."],
+      ["casiopea", "Teoría de navegación", "Estrellas y constelaciones", "Si la Osa Mayor está bajo el horizonte, la Polar se busca con Casiopea."],
+      ["casiopea-bis", "Teoría de navegación", "Estrellas y constelaciones", "La bisectriz de los ángulos de Casiopea pasa aproximadamente por la Polar."],
+      ["polar-brillo", "Teoría de navegación", "Estrellas y constelaciones", "La Polar es de la Osa Menor, su declinación está muy cerca de 90° y no es la más brillante de las 99 del almanaque."],
+      ["orion", "Teoría de navegación", "Estrellas y constelaciones", "Orión es la constelación con más estrellas brillantes."],
+      ["cinturon", "Teoría de navegación", "Estrellas y constelaciones", "El cinturón de Orión queda prácticamente a la misma distancia de Sirius y de Aldebarán."],
+      ["tres-marias", "Teoría de navegación", "Estrellas y constelaciones", "Prolongar las Tres Marías hacia el norte no lleva a la Polar."],
+      ["cruz", "Teoría de navegación", "Estrellas y constelaciones", "En la Cruz del Sur el sur lo marcan Acrux y Gacrux, el brazo largo. Mimosa también es de la cruz. El brazo menor no indica el sur."],
+      ["as", "Teoría de navegación", "Esfera y sextante", "El ángulo sidéreo se cuenta en el ecuador desde Aries hasta el círculo horario del astro, de 0° a 360°, en sentido contrario a las agujas del reloj visto desde el polo norte."],
+      ["ecliptica", "Teoría de navegación", "Esfera y sextante", "El ángulo entre la eclíptica y el ecuador es el máximo valor absoluto de la declinación del Sol."],
+      ["dif-asc", "Teoría de navegación", "Esfera y sextante", "La diferencia ascensional va del este o del oeste hasta el pie del horario del astro en el horizonte. Es el complemento del horario local."],
+      ["indice", "Teoría de navegación", "Esfera y sextante", "El error de índice aparece cuando el espejo grande y el pequeño no están paralelos con el índice en cero."],
+      ["indice-3", "Teoría de navegación", "Esfera y sextante", "Si el error de índice pasa de 3', se actúa sobre el tornillo del espejo de horizonte, el pequeño."],
+      ["limbo", "Teoría de navegación", "Esfera y sextante", "El limbo es una parte fija de la armadura. Los grados se leen en el limbo y los minutos en el tambor."],
+      ["arco-tiempo", "Cálculo de navegación", "Hora y corrección", "15° de longitud son 1 hora. 1° son 4 minutos y 1' son 4 segundos."],
+      ["signo-long", "Cálculo de navegación", "Hora y corrección", "De la hora civil del lugar a la de Greenwich: al oeste se suma la longitud en tiempo y al este se resta."],
+      ["huso", "Cálculo de navegación", "Hora y corrección", "El huso es el cociente entero de la longitud entre 15. Si los minutos pasan de 30, se sube un huso."],
+      ["hz", "Cálculo de navegación", "Hora y corrección", "La hora legal sale de la de Greenwich restando el huso oeste o sumando el huso este."],
+      ["paso", "Cálculo de navegación", "Hora y corrección", "La hora civil del paso del Sol por el meridiano del lugar es la hora de paso por Greenwich que da el almanaque. Después se aplica la longitud."],
+      ["ct", "Cálculo de navegación", "Hora y corrección", "La corrección total es azimut verdadero menos azimut de aguja. Cerca del norte se toma la diferencia cruzando 000°."],
+      ["oficial", "Cálculo de navegación", "Hora y corrección", "La hora legal es la del huso. La hora oficial la fija el estado y en España va adelantada, en horas enteras, respecto a su huso."],
+      ["frente", "Meteorología", "Lo que más sale", "El frente polar separa las masas polares de las tropicales."],
+      ["zcit", "Meteorología", "Lo que más sale", "La ZCIT es una franja de bajas presiones junto al ecuador, donde convergen los alisios de los dos hemisferios."],
+      ["alisios", "Meteorología", "Lo que más sale", "Los alisios van hacia el ecuador y Coriolis los desvía al oeste: del nordeste en el hemisferio norte y del sureste en el sur."],
+      ["ciclon", "Meteorología", "Lo que más sale", "En el hemisferio norte, si el viento rola en sentido horario, el buque está en el semicírculo peligroso."],
+      ["saffir", "Meteorología", "Lo que más sale", "Saffir-Simpson categoriza ciclones. No tiene 12 categorías ni está graduada del 1 al 9."],
+      ["corrientes", "Meteorología", "Lo que más sale", "Benguela es del Atlántico. La del Niño y la de Nueva Guinea no lo son."],
+      ["canal", "Inglés", "Frases que se repiten", "En un narrow channel el buque se mantiene lo más cerca posible del límite exterior que queda por su costado de estribor."],
+      ["derelict", "Inglés", "Frases que se repiten", "Derelict vessel es un buque abandonado. Unlit derelict vessel adrift: buque abandonado sin iluminar, a la deriva."],
+      ["propeller", "Inglés", "Frases que se repiten", "Fishing gear has fouled my propeller: los artes de pesca se han enredado en la hélice."],
+      ["sailing", "Inglés", "Frases que se repiten", "Sailing Directions es el derrotero."]
+    ].map(([id, module, group, text]) => ({ id, module, group, text }));
+
+    document.getElementById("views").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-view]");
+      if (!button) return;
+      view = button.dataset.view;
+      localStorage.setItem("cy-vista", view);
+      show();
+    });
+    document.getElementById("reset-repaso").addEventListener("click", () => {
+      if (!window.confirm("Se quitan las marcas del repaso.")) return;
+      known = new Set();
+      localStorage.setItem(REVIEW_STORE, "[]");
+      show();
+    });
+
+    show();
+
+    function show() {
+      const review = view === "repaso";
+      document.body.classList.toggle("repaso", review);
+      document.getElementById("card").hidden = review;
+      document.getElementById("repaso").hidden = !review;
+      document.getElementById("lede").textContent = LEDE[view];
+      document.getElementById("l-ok").textContent = review ? "Sabidas" : "Aciertos";
+      document.getElementById("l-bad").textContent = review ? "Por ver" : "Fallos";
+      document.getElementById("l-left").textContent = review ? "Grupos" : "Pendientes";
+      document.getElementById("l-all").textContent = review ? "En la lista" : "En el mazo";
+      document.getElementById("stat-bad").classList.toggle("bad", !review);
+      document.querySelectorAll("#views .chip").forEach((chip) => {
+        chip.setAttribute("aria-pressed", String(chip.dataset.view === view));
+      });
+      if (review) renderReview();
+      else render();
+    }
+
+    function reviewPool() {
+      return REVIEW.filter((item) => state.module === "Todas" || item.module === state.module);
+    }
+
+    function renderReview() {
+      const items = reviewPool();
+      const groups = [];
+      items.forEach((item) => {
+        let group = groups.find((entry) => entry.name === item.group);
+        if (!group) {
+          group = { name: item.group, items: [] };
+          groups.push(group);
         }
+        group.items.push(item);
+      });
+      const knownHere = items.filter((item) => known.has(item.id)).length;
+      document.getElementById("n-ok").textContent = String(knownHere);
+      document.getElementById("n-bad").textContent = String(items.length - knownHere);
+      document.getElementById("n-left").textContent = String(groups.length);
+      document.getElementById("n-all").textContent = String(items.length);
+      mods.querySelectorAll(".chip").forEach((chip) => {
+        chip.setAttribute("aria-pressed", String(chip.dataset.module === state.module));
+      });
+      document.getElementById("repaso-kicker").textContent =
+        knownHere + " de " + items.length + " marcadas en este filtro.";
+      const list = document.getElementById("repaso-list");
+      list.replaceChildren();
+      groups.forEach((group) => {
+        const title = document.createElement("h2");
+        title.className = "group";
+        title.textContent = group.name;
+        list.appendChild(title);
+        group.items.forEach((item) => {
+          const label = document.createElement("label");
+          label.className = "check" + (known.has(item.id) ? " done" : "");
+          const input = document.createElement("input");
+          input.type = "checkbox";
+          input.checked = known.has(item.id);
+          input.addEventListener("change", () => {
+            if (input.checked) known.add(item.id);
+            else known.delete(item.id);
+            localStorage.setItem(REVIEW_STORE, JSON.stringify([...known]));
+            label.classList.toggle("done", input.checked);
+            const current = reviewPool();
+            const marked = current.filter((row) => known.has(row.id)).length;
+            document.getElementById("n-ok").textContent = String(marked);
+            document.getElementById("n-bad").textContent = String(current.length - marked);
+            document.getElementById("repaso-kicker").textContent =
+              marked + " de " + current.length + " marcadas en este filtro.";
+          });
+          const text = document.createElement("span");
+          text.textContent = item.text;
+          label.append(input, text);
+          list.appendChild(label);
+        });
+      });
+    }
+
+    function fresh() {
+      return { module: "Todas", seed: 7, index: 0, queue: [], cards: {} };
+    }
+
+    function readStore(key) {
+      try {
+        const raw = JSON.parse(localStorage.getItem(key) || "");
+        if (raw && typeof raw === "object") return raw;
       } catch (error) {
         /* empieza de cero */
       }
-      return { module: "Todas", seed: 7, index: 0, picks: {} };
+      return null;
+    }
+
+    function load() {
+      const current = readStore(STORE);
+      if (current) return normalize(current, false);
+      const previous = readStore("cy-practica-v1");
+      if (previous) return normalize(previous, true);
+      return fresh();
+    }
+
+    function normalize(raw, fromV1) {
+      const next = fresh();
+      next.module = MODULES.some(([id]) => id === raw.module) ? raw.module : "Todas";
+      next.seed = Number.isInteger(raw.seed) ? raw.seed : 7;
+      next.index = Number.isInteger(raw.index) ? raw.index : 0;
+      next.cards = {};
+      if (fromV1 && raw.picks && typeof raw.picks === "object") {
+        Object.keys(raw.picks).forEach((id) => {
+          const item = byId.get(id);
+          if (!item) return;
+          next.cards[id] = raw.picks[id] === item.letter
+            ? { box: "good" }
+            : { box: "again" };
+        });
+      } else if (raw.cards && typeof raw.cards === "object") {
+        Object.keys(raw.cards).forEach((id) => {
+          const card = raw.cards[id];
+          if (!card || (card.box !== "good" && card.box !== "again")) return;
+          next.cards[id] = { box: card.box };
+          if (card.pending && card.last) {
+            next.cards[id].pending = true;
+            next.cards[id].last = card.last;
+          }
+        });
+      }
+      next.queue = Array.isArray(raw.queue) ? raw.queue.filter((id) => typeof id === "string") : [];
+      return next;
     }
 
     function save() {
@@ -389,53 +613,109 @@
       return copy;
     }
 
-    function deck() {
-      const pool = bank.filter((item) => state.module === "Todas" || item.module === state.module);
-      const byId = new Map(pool.map((item) => [item.id, item]));
-      return shuffle(pool.map((item) => item.id), state.seed)
-        .map((id) => byId.get(id))
-        .filter(Boolean);
+    function pool() {
+      return bank.filter((item) => state.module === "Todas" || item.module === state.module);
     }
 
-    function move(step) {
-      const items = deck();
-      if (!items.length) return;
-      state.index = (state.index + step + items.length) % items.length;
-      save();
-      render();
-      window.scrollTo({ top: 0, behavior: "smooth" });
+    function boxOf(id) {
+      const card = state.cards[id];
+      return card && card.box ? card.box : "new";
+    }
+
+    function syncQueue() {
+      const allowed = new Set(pool().map((item) => item.id));
+      const seen = new Set();
+      state.queue = state.queue.filter((id) => {
+        if (!allowed.has(id) || boxOf(id) === "good" || seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+      const extras = pool()
+        .map((item) => item.id)
+        .filter((id) => !seen.has(id) && boxOf(id) !== "good");
+      if (extras.length) state.queue.push(...shuffle(extras, state.seed));
+      if (state.index >= state.queue.length) state.index = 0;
+    }
+
+    function grade() {
+      syncQueue();
+      const id = state.queue[state.index];
+      const item = id ? byId.get(id) : null;
+      const card = id ? state.cards[id] : null;
+      if (!item || !card || !card.pending) return;
+      card.pending = false;
+      if (card.last === item.letter) {
+        card.box = "good";
+        delete card.last;
+        state.queue.splice(state.index, 1);
+        if (state.index >= state.queue.length) state.index = 0;
+        return;
+      }
+      card.box = "again";
+      delete card.last;
+      state.queue.splice(state.index, 1);
+      const total = state.queue.length;
+      if (total === 0) {
+        state.queue = [id];
+        state.index = 0;
+        return;
+      }
+      const gap = Math.min(AGAIN_GAP, total);
+      const start = state.index >= total ? 0 : state.index;
+      const at = start + gap;
+      if (at > total) {
+        state.queue.splice(at - total, 0, id);
+        state.index = start + 1;
+      } else {
+        state.queue.splice(at, 0, id);
+        state.index = start;
+      }
+      if (state.index >= state.queue.length) state.index = 0;
     }
 
     function render() {
-      const items = deck();
-      if (!items.length) return;
-      if (state.index < 0 || state.index >= items.length) state.index = 0;
-      const item = items[state.index];
-      const pick = state.picks[item.id] || "";
-      const revealed = Boolean(pick);
-
+      syncQueue();
+      const items = pool();
       let ok = 0;
       let bad = 0;
+      let left = 0;
       items.forEach((question) => {
-        const chosen = state.picks[question.id];
-        if (!chosen) return;
-        if (chosen === question.letter) ok += 1;
-        else bad += 1;
+        const box = boxOf(question.id);
+        if (box === "good") ok += 1;
+        else if (box === "again") bad += 1;
+        else left += 1;
       });
       document.getElementById("n-ok").textContent = String(ok);
       document.getElementById("n-bad").textContent = String(bad);
-      document.getElementById("n-left").textContent = String(items.length - ok - bad);
-      document.getElementById("n-all").textContent = String(items.length);
-
+      document.getElementById("n-left").textContent = String(left);
+      document.getElementById("n-all").textContent = String(state.queue.length);
       mods.querySelectorAll(".chip").forEach((chip) => {
         chip.setAttribute("aria-pressed", String(chip.dataset.module === state.module));
       });
 
+      const next = document.getElementById("next");
+      if (!state.queue.length) {
+        document.getElementById("kicker").textContent = "Mazo al día";
+        document.getElementById("stem").textContent = "No quedan preguntas. Las acertadas están ocultas.";
+        document.getElementById("progress").textContent = "Borrar marcas las devuelve todas.";
+        optionsEl.replaceChildren();
+        resultEl.hidden = true;
+        resultEl.replaceChildren();
+        next.disabled = true;
+        return;
+      }
+
+      const item = byId.get(state.queue[state.index]);
+      const card = state.cards[item.id] || {};
+      const revealed = Boolean(card.pending);
+      const pick = card.last || "";
+
       document.getElementById("kicker").textContent =
-        item.module + " · " + item.topic + " · " + item.conv + " · " + item.n;
+        item.module + " · " + item.topic + " · " + item.conv + " · " + item.n +
+        (boxOf(item.id) === "again" ? " · repaso" : "");
       document.getElementById("stem").textContent = item.stem;
       document.getElementById("progress").textContent =
-        (state.index + 1) + " de " + items.length + " en este mazo" +
+        (state.index + 1) + " de " + state.queue.length + " en este mazo" +
         (revealed ? "" : ". Marca una opción para seguir.");
 
       optionsEl.replaceChildren();
@@ -456,7 +736,6 @@
         optionsEl.appendChild(button);
       });
 
-      const next = document.getElementById("next");
       next.disabled = !revealed;
       if (!revealed) {
         resultEl.hidden = true;
@@ -467,16 +746,17 @@
       resultEl.className = "result " + (pick === item.letter ? "good" : "bad");
       const title = document.createElement("h2");
       title.textContent = pick === item.letter
-        ? "Correcta. La plantilla marca la " + item.letter + "."
-        : "Has marcado la " + pick + ". La plantilla da la " + item.letter + ".";
+        ? "Correcta. La pregunta sale del mazo."
+        : "Has marcado la " + pick + ". Vuelve más adelante. La plantilla da la " + item.letter + ".";
       const why = document.createElement("p");
       why.textContent = item.why;
       resultEl.replaceChildren(title, why);
     }
 
     function choose(item, letter) {
-      if (state.picks[item.id]) return;
-      state.picks[item.id] = letter;
+      const card = state.cards[item.id];
+      if (card && card.pending) return;
+      state.cards[item.id] = { box: boxOf(item.id), pending: true, last: letter };
       save();
       render();
       resultEl.scrollIntoView({ behavior: "smooth", block: "nearest" });

@@ -255,8 +255,17 @@
       text-underline-offset: 0.15rem;
     }
     @media (max-width: 640px) {
+      :root { --dock: 0px; }
       .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .stat span { font-size: 0.75rem; }
+      .dock {
+        position: static;
+        z-index: auto;
+        background: transparent;
+        border-top: 0;
+        padding: 0 0 0.85rem;
+      }
+      .tools { margin-top: 0.2rem; }
     }
     @media (min-width: 720px) {
       header h1 { font-size: 1.7rem; }
@@ -268,7 +277,7 @@
   <div class="wrap">
     <header>
       <h1>Práctica de capitán de yate</h1>
-      <p class="lede">Marca una opción y verás la respuesta de la plantilla y el porqué, según los apuntes. En cálculo entran los husos, con la hora civil y la hora legal, y la corrección total de una sola resta.</p>
+      <p class="lede">Marca una opción y verás la respuesta de la plantilla y el porqué, según los apuntes. En cálculo entran los husos y, con el dato del almanaque ya escrito, el paso del Sol, el horario en el lugar y la corrección total.</p>
       <div class="stats" aria-live="polite">
         <div class="stat ok"><b id="n-ok">0</b><span>Aciertos</span></div>
         <div class="stat bad"><b id="n-bad">0</b><span>Fallos</span></div>
@@ -278,22 +287,22 @@
       <div class="mods" id="mods" role="group" aria-label="Módulo"></div>
     </header>
     <article class="card" id="card">
+      <div class="dock">
+        <div class="dock-inner">
+          <button type="button" id="prev">Anterior</button>
+          <button type="button" class="primary" id="next" disabled>Siguiente</button>
+        </div>
+        <div class="tools">
+          <button type="button" id="shuffle">Barajar</button>
+          <button type="button" id="reset">Borrar marcas</button>
+        </div>
+      </div>
       <p class="kicker" id="kicker"></p>
       <p class="stem" id="stem"></p>
       <div class="options" id="options"></div>
       <div class="result" id="result" hidden></div>
       <p class="progress" id="progress"></p>
     </article>
-  </div>
-  <div class="dock">
-    <div class="dock-inner">
-      <button type="button" id="prev">Anterior</button>
-      <button type="button" class="primary" id="next" disabled>Siguiente</button>
-    </div>
-    <div class="tools">
-      <button type="button" id="shuffle">Barajar</button>
-      <button type="button" id="reset">Borrar marcas</button>
-    </div>
   </div>
   <script src="banco.js"></script>
   <script>

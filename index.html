@@ -175,6 +175,10 @@
       outline: 2px solid var(--accent);
       outline-offset: 2px;
     }
+    .opt.picked {
+      border-color: var(--accent);
+      box-shadow: inset 0 0 0 1px var(--accent);
+    }
     .opt.correct {
       border-color: var(--ok);
       background: var(--ok-bg);
@@ -195,7 +199,7 @@
       margin: 0 0 0.35rem;
       font-size: 1rem;
     }
-    .result p { margin: 0; }
+    .result p { margin: 0; white-space: pre-wrap; }
     .progress {
       margin: 0.75rem 0 0;
       color: var(--muted);
@@ -268,7 +272,28 @@
     }
     .check.done span { color: var(--muted); }
     body.repaso { --dock: 0px; }
-    #card[hidden], #repaso[hidden] { display: none !important; }
+    #card[hidden], #repaso[hidden], #examen[hidden], #exam-setup[hidden], #exam-run[hidden], #exam-done[hidden] {
+      display: none !important;
+    }
+    .part {
+      padding: 0.75rem 0 0.15rem;
+      border-top: 1px solid var(--line);
+    }
+    .part h2 {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.8rem;
+      margin: 0;
+      font-size: 1rem;
+    }
+    .part h2 b { color: var(--bad); }
+    .part h2 b.clear { color: var(--ok); }
+    .miss {
+      margin: 0.45rem 0 0;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+    #exam-setup .mods { margin-top: 0.75rem; }
     @media (max-width: 640px) {
       .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .stat span { font-size: 0.75rem; }
@@ -288,6 +313,7 @@
       <div class="views" id="views" role="group" aria-label="Zona">
         <button type="button" class="chip" data-view="practica">Práctica</button>
         <button type="button" class="chip" data-view="repaso">Repaso</button>
+        <button type="button" class="chip" data-view="examen">Examen</button>
       </div>
       <div class="stats" aria-live="polite">
         <div class="stat ok"><b id="n-ok">0</b><span id="l-ok">Aciertos</span></div>
@@ -319,6 +345,46 @@
       <div id="repaso-list"></div>
       <div class="tools">
         <button type="button" id="reset-repaso">Borrar marcas del repaso</button>
+      </div>
+    </section>
+    <section class="card" id="examen" hidden>
+      <div id="exam-setup">
+        <p class="kicker" id="exam-setup-kicker"></p>
+        <div class="mods" id="exam-sources" role="group" aria-label="Examen"></div>
+        <div class="dock">
+          <div class="dock-inner">
+            <button type="button" class="primary" id="exam-start">Empezar</button>
+          </div>
+          <div class="tools">
+            <button type="button" id="exam-resume" hidden>Continuar el examen a medias</button>
+          </div>
+        </div>
+      </div>
+      <div id="exam-run" hidden>
+        <div class="dock">
+          <div class="dock-inner">
+            <button type="button" id="exam-prev">Anterior</button>
+            <button type="button" class="primary" id="exam-next">Siguiente</button>
+          </div>
+          <div class="tools">
+            <button type="button" id="exam-pick">Elegir otro</button>
+            <button type="button" id="exam-finish">Terminar</button>
+          </div>
+        </div>
+        <p class="kicker" id="exam-kicker"></p>
+        <p class="stem" id="exam-stem"></p>
+        <div class="options" id="exam-options"></div>
+        <p class="progress" id="exam-progress"></p>
+      </div>
+      <div id="exam-done" hidden>
+        <p class="kicker" id="exam-done-kicker"></p>
+        <p class="scoreline" id="exam-score"></p>
+        <div id="exam-parts"></div>
+        <div class="dock">
+          <div class="dock-inner">
+            <button type="button" class="primary" id="exam-again">Otro examen</button>
+          </div>
+        </div>
       </div>
     </section>
   </div>
@@ -390,9 +456,11 @@
     const REVIEW_STORE = "cy-repaso-v1";
     const LEDE = {
       practica: document.getElementById("lede").textContent,
-      repaso: "Marca lo que ya te sabes. Son datos que el examen de código 01 vuelve a preguntar."
+      repaso: "Marca lo que ya te sabes. Son datos que el examen de código 01 vuelve a preguntar.",
+      examen: "Responde sin ver la plantilla. Al terminar verás los fallos de teoría, cálculo, meteorología e inglés, y el total."
     };
-    let view = localStorage.getItem("cy-vista") === "repaso" ? "repaso" : "practica";
+    let view = localStorage.getItem("cy-vista");
+    if (view !== "repaso" && view !== "examen") view = "practica";
     let known = new Set();
     try {
       const saved = JSON.parse(localStorage.getItem(REVIEW_STORE) || "[]");
@@ -450,24 +518,315 @@
       show();
     });
 
+    const EXAM_STORE = "cy-examen-v1";
+    const PARTS = [
+      ["Teoría de navegación", "Teoría"],
+      ["Cálculo de navegación", "Cálculo"],
+      ["Meteorología", "Meteorología"],
+      ["Inglés", "Inglés"]
+    ];
+    const convs = [];
+    bank.forEach((item) => {
+      if (!convs.includes(item.conv)) convs.push(item.conv);
+    });
+    let examSource = "aleatorio";
+    let examPicking = false;
+    let exam = loadExam();
+
+    const sources = document.getElementById("exam-sources");
+    [["aleatorio", "Aleatorio"]].concat(convs.map((name) => [name, shortConv(name)])).forEach(([id, label]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "chip";
+      button.textContent = label;
+      button.dataset.source = id;
+      button.addEventListener("click", () => {
+        examSource = id;
+        paintSources();
+        renderExamSetup();
+      });
+      sources.appendChild(button);
+    });
+    document.getElementById("exam-start").addEventListener("click", startExam);
+    document.getElementById("exam-resume").addEventListener("click", () => {
+      examPicking = false;
+      renderExam();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+    document.getElementById("exam-prev").addEventListener("click", () => {
+      if (!exam || exam.index === 0) return;
+      exam.index -= 1;
+      saveExam();
+      renderExamQuestion();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+    document.getElementById("exam-next").addEventListener("click", () => {
+      if (!exam) return;
+      if (exam.index >= exam.ids.length - 1) finishExam();
+      else {
+        exam.index += 1;
+        saveExam();
+        renderExamQuestion();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    });
+    document.getElementById("exam-pick").addEventListener("click", () => {
+      examPicking = true;
+      renderExam();
+    });
+    document.getElementById("exam-finish").addEventListener("click", () => {
+      if (!exam) return;
+      const pending = exam.ids.filter((id) => !exam.picks[id]).length;
+      if (pending && !window.confirm("Terminar ahora. Quedan " + pending + " sin contestar, y salen aparte de los fallos.")) return;
+      finishExam();
+    });
+    document.getElementById("exam-again").addEventListener("click", () => {
+      exam = null;
+      examPicking = false;
+      saveExam();
+      renderExam();
+    });
+
     show();
 
     function show() {
       const review = view === "repaso";
-      document.body.classList.toggle("repaso", review);
-      document.getElementById("card").hidden = review;
+      const examView = view === "examen";
+      document.body.classList.toggle("repaso", review || examView);
+      document.getElementById("card").hidden = review || examView;
       document.getElementById("repaso").hidden = !review;
+      document.getElementById("examen").hidden = !examView;
+      document.getElementById("mods").hidden = examView;
       document.getElementById("lede").textContent = LEDE[view];
-      document.getElementById("l-ok").textContent = review ? "Sabidas" : "Aciertos";
-      document.getElementById("l-bad").textContent = review ? "Por ver" : "Fallos";
-      document.getElementById("l-left").textContent = review ? "Grupos" : "Pendientes";
-      document.getElementById("l-all").textContent = review ? "En la lista" : "En el mazo";
-      document.getElementById("stat-bad").classList.toggle("bad", !review);
+      if (!examView) {
+        document.getElementById("l-ok").textContent = review ? "Sabidas" : "Aciertos";
+        document.getElementById("l-bad").textContent = review ? "Por ver" : "Fallos";
+        document.getElementById("l-left").textContent = review ? "Grupos" : "Pendientes";
+        document.getElementById("l-all").textContent = review ? "En la lista" : "En el mazo";
+        document.getElementById("stat-bad").classList.toggle("bad", !review);
+      }
       document.querySelectorAll("#views .chip").forEach((chip) => {
         chip.setAttribute("aria-pressed", String(chip.dataset.view === view));
       });
       if (review) renderReview();
+      else if (examView) renderExam();
       else render();
+    }
+
+    function shortConv(name) {
+      return name
+        .replace("Diciembre", "Dic")
+        .replace("Noviembre", "Nov")
+        .replace("Abril", "Abr")
+        .replace("Junio", "Jun");
+    }
+
+    function sourceLabel(source) {
+      return source === "aleatorio" ? "Aleatorio" : source;
+    }
+
+    function loadExam() {
+      const raw = readStore(EXAM_STORE);
+      if (!raw || !Array.isArray(raw.ids)) return null;
+      const ids = raw.ids.filter((id) => byId.has(id));
+      if (!ids.length) return null;
+      const picks = {};
+      if (raw.picks && typeof raw.picks === "object") {
+        Object.keys(raw.picks).forEach((id) => {
+          if (byId.has(id) && "ABCD".includes(raw.picks[id])) picks[id] = raw.picks[id];
+        });
+      }
+      return {
+        source: raw.source === "aleatorio" || convs.includes(raw.source) ? raw.source : "aleatorio",
+        ids: ids,
+        index: Number.isInteger(raw.index) ? Math.min(Math.max(raw.index, 0), ids.length - 1) : 0,
+        picks: picks,
+        phase: raw.phase === "done" ? "done" : "run",
+        seed: Number.isInteger(raw.seed) ? raw.seed : 1
+      };
+    }
+
+    function saveExam() {
+      if (exam) localStorage.setItem(EXAM_STORE, JSON.stringify(exam));
+      else localStorage.removeItem(EXAM_STORE);
+    }
+
+    function paintSources() {
+      document.querySelectorAll("#exam-sources .chip").forEach((chip) => {
+        chip.setAttribute("aria-pressed", String(chip.dataset.source === examSource));
+      });
+    }
+
+    function buildRandom(seed) {
+      const ids = [];
+      PARTS.forEach(([module], index) => {
+        const pool = bank.filter((item) => item.module === module).map((item) => item.id);
+        ids.push(...shuffle(pool, (seed + index + 1) >>> 0).slice(0, 10));
+      });
+      return ids;
+    }
+
+    function startExam() {
+      if (exam && exam.phase === "run" && !window.confirm("Empieza un examen nuevo. El que tienes a medias se cierra.")) return;
+      const seed = (Date.now() >>> 0) || 1;
+      const ids = examSource === "aleatorio"
+        ? buildRandom(seed)
+        : bank.filter((item) => item.conv === examSource).sort((a, b) => a.n - b.n).map((item) => item.id);
+      exam = { source: examSource, ids: ids, index: 0, picks: {}, phase: "run", seed: seed };
+      examPicking = false;
+      saveExam();
+      renderExam();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function finishExam() {
+      if (!exam) return;
+      exam.phase = "done";
+      examPicking = false;
+      saveExam();
+      renderExam();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function renderExamSetup() {
+      const count = examSource === "aleatorio"
+        ? 40
+        : bank.filter((item) => item.conv === examSource).length;
+      const note = examSource === "aleatorio"
+        ? "10 de teoría, 10 de cálculo, 10 de meteorología y 10 de inglés."
+        : "Van en el orden del examen. En cálculo entran las preguntas cortas de esa convocatoria.";
+      document.getElementById("exam-setup-kicker").textContent =
+        sourceLabel(examSource) + " · " + count + " preguntas. " + note;
+    }
+
+    function renderExam() {
+      const running = Boolean(exam && exam.phase === "run" && !examPicking);
+      const finished = Boolean(exam && exam.phase === "done" && !examPicking);
+      document.getElementById("exam-setup").hidden = running || finished;
+      document.getElementById("exam-run").hidden = !running;
+      document.getElementById("exam-done").hidden = !finished;
+      document.getElementById("exam-resume").hidden = !(exam && exam.phase === "run");
+      paintSources();
+      if (running) renderExamQuestion();
+      else if (finished) renderExamResult();
+      else renderExamSetup();
+    }
+
+    function renderExamQuestion() {
+      const item = byId.get(exam.ids[exam.index]);
+      const pick = exam.picks[item.id] || "";
+      const answered = exam.ids.filter((id) => exam.picks[id]).length;
+      document.getElementById("l-ok").textContent = "Contestadas";
+      document.getElementById("l-bad").textContent = "Pendientes";
+      document.getElementById("l-left").textContent = "Pregunta";
+      document.getElementById("l-all").textContent = "Total";
+      document.getElementById("n-ok").textContent = String(answered);
+      document.getElementById("n-bad").textContent = String(exam.ids.length - answered);
+      document.getElementById("n-left").textContent = String(exam.index + 1);
+      document.getElementById("n-all").textContent = String(exam.ids.length);
+      document.getElementById("stat-bad").classList.remove("bad");
+      const part = PARTS.find(([module]) => module === item.module);
+      document.getElementById("exam-kicker").textContent =
+        "Examen · " + sourceLabel(exam.source) + " · " + (part ? part[1] : item.module) + " · " + item.n;
+      document.getElementById("exam-stem").textContent = item.stem;
+      document.getElementById("exam-progress").textContent =
+        (exam.index + 1) + " de " + exam.ids.length + ". La plantilla sale al terminar.";
+      const box = document.getElementById("exam-options");
+      box.replaceChildren();
+      ["A", "B", "C", "D"].forEach((letter) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "opt" + (pick === letter ? " picked" : "");
+        const badge = document.createElement("span");
+        badge.className = "letter";
+        badge.textContent = letter;
+        const text = document.createElement("span");
+        text.textContent = item[letter.toLowerCase()];
+        button.append(badge, text);
+        button.addEventListener("click", () => {
+          exam.picks[item.id] = letter;
+          saveExam();
+          renderExamQuestion();
+        });
+        box.appendChild(button);
+      });
+      document.getElementById("exam-prev").disabled = exam.index === 0;
+      document.getElementById("exam-next").textContent =
+        exam.index === exam.ids.length - 1 ? "Ver resultado" : "Siguiente";
+    }
+
+    function examRows() {
+      return PARTS.map(([module, label]) => {
+        const items = exam.ids.map((id) => byId.get(id)).filter((item) => item && item.module === module);
+        let ok = 0;
+        let bad = 0;
+        let blank = 0;
+        const misses = [];
+        items.forEach((item) => {
+          const pick = exam.picks[item.id] || "";
+          if (!pick) {
+            blank += 1;
+            misses.push({ item: item, pick: "" });
+          } else if (pick === item.letter) ok += 1;
+          else {
+            bad += 1;
+            misses.push({ item: item, pick: pick });
+          }
+        });
+        return { label: label, n: items.length, ok: ok, bad: bad, blank: blank, misses: misses };
+      }).filter((row) => row.n > 0);
+    }
+
+    function renderExamResult() {
+      const rows = examRows();
+      const ok = rows.reduce((sum, row) => sum + row.ok, 0);
+      const bad = rows.reduce((sum, row) => sum + row.bad, 0);
+      const blank = rows.reduce((sum, row) => sum + row.blank, 0);
+      const total = rows.reduce((sum, row) => sum + row.n, 0);
+      document.getElementById("l-ok").textContent = "Aciertos";
+      document.getElementById("l-bad").textContent = "Fallos";
+      document.getElementById("l-left").textContent = "Sin contestar";
+      document.getElementById("l-all").textContent = "Total";
+      document.getElementById("n-ok").textContent = String(ok);
+      document.getElementById("n-bad").textContent = String(bad);
+      document.getElementById("n-left").textContent = String(blank);
+      document.getElementById("n-all").textContent = String(total);
+      document.getElementById("stat-bad").classList.toggle("bad", bad > 0);
+      document.getElementById("exam-done-kicker").textContent = "Examen · " + sourceLabel(exam.source);
+      document.getElementById("exam-score").textContent =
+        bad + (bad === 1 ? " fallo" : " fallos") + " de " + total + ". " +
+        ok + (ok === 1 ? " acierto." : " aciertos.") +
+        (blank ? " " + blank + " sin contestar." : "");
+      const host = document.getElementById("exam-parts");
+      host.replaceChildren();
+      rows.forEach((row) => {
+        const block = document.createElement("section");
+        block.className = "part";
+        const title = document.createElement("h2");
+        const name = document.createElement("span");
+        name.textContent = row.label;
+        const count = document.createElement("b");
+        count.className = row.bad === 0 ? "clear" : "";
+        count.textContent = row.bad + (row.bad === 1 ? " fallo" : " fallos") + " de " + row.n +
+          (row.blank ? " · " + row.blank + " sin contestar" : "");
+        title.append(name, count);
+        block.appendChild(title);
+        if (!row.misses.length) {
+          const clear = document.createElement("p");
+          clear.className = "miss";
+          clear.textContent = "Sin fallos.";
+          block.appendChild(clear);
+        }
+        row.misses.forEach((miss) => {
+          const line = document.createElement("p");
+          line.className = "miss";
+          line.textContent = "Pregunta " + miss.item.n +
+            (miss.pick ? " · marcaste la " + miss.pick : " · sin contestar") +
+            " · plantilla " + miss.item.letter;
+          block.appendChild(line);
+        });
+        host.appendChild(block);
+      });
     }
 
     function reviewPool() {

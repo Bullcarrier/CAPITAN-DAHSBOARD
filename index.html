@@ -519,7 +519,7 @@
       show();
     });
 
-    const EXAM_STORE = "cy-examen-v1";
+    const EXAM_STORE = "cy-examen-v2";
     const PARTS = [
       ["Teoría de navegación", "Teoría"],
       ["Cálculo de navegación", "Cálculo"],
@@ -695,7 +695,7 @@
         : bank.filter((item) => item.conv === examSource).length;
       const note = examSource === "aleatorio"
         ? "10 de teoría, 10 de cálculo, 10 de meteorología y 10 de inglés."
-        : "Van en el orden del examen. En cálculo entran las preguntas cortas de esa convocatoria.";
+        : "Van en el orden del examen. En los problemas de cálculo, al final solo sale la opción correcta.";
       document.getElementById("exam-setup-kicker").textContent =
         sourceLabel(examSource) + " · " + count + " preguntas. " + note;
     }
@@ -765,7 +765,9 @@
         const misses = [];
         items.forEach((item) => {
           const pick = exam.picks[item.id] || "";
-          if (!pick) {
+          if (item.letter === "ANULADA") {
+            ok += 1;
+          } else if (!pick) {
             blank += 1;
             misses.push({ item: item, pick: "" });
           } else if (pick === item.letter) ok += 1;
@@ -823,7 +825,9 @@
           line.className = "miss";
           line.textContent = "Pregunta " + miss.item.n +
             (miss.pick ? " · marcaste la " + miss.pick : " · sin contestar") +
-            " · plantilla " + miss.item.letter;
+            (miss.item.problem
+              ? " · correcta: «" + miss.item[miss.item.letter.toLowerCase()] + "»"
+              : " · plantilla " + miss.item.letter);
           block.appendChild(line);
         });
         host.appendChild(block);
@@ -957,7 +961,7 @@
     }
 
     function pool() {
-      return bank.filter((item) => state.module === "Todas" || item.module === state.module);
+      return bank.filter((item) => !item.problem && (state.module === "Todas" || item.module === state.module));
     }
 
     function boxOf(id) {

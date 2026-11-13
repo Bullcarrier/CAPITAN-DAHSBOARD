@@ -249,7 +249,7 @@
       text-decoration: underline;
       text-underline-offset: 0.15rem;
     }
-    .views { display: flex; gap: 0.4rem; margin-top: 0.8rem; }
+    .views { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.8rem; }
     .group {
       margin: 1.05rem 0 0.15rem;
       font-size: 1rem;
@@ -314,6 +314,7 @@
         <button type="button" class="chip" data-view="practica">Práctica</button>
         <button type="button" class="chip" data-view="repaso">Repaso</button>
         <button type="button" class="chip" data-view="examen">Examen</button>
+        <button type="button" class="chip" id="wake" aria-pressed="false">Mantener pantalla</button>
       </div>
       <div class="stats" aria-live="polite">
         <div class="stat ok"><b id="n-ok">0</b><span id="l-ok">Aciertos</span></div>
@@ -1103,6 +1104,56 @@
       render();
       resultEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
+
+    const WAKE_KEY = "cy-pantalla";
+    let wakeLock = null;
+    let wantWake = localStorage.getItem(WAKE_KEY) === "1";
+    const wakeButton = document.getElementById("wake");
+
+    function paintWake() {
+      wakeButton.setAttribute("aria-pressed", String(wantWake));
+      wakeButton.textContent = wantWake ? "Pantalla activa" : "Mantener pantalla";
+    }
+
+    async function holdWake() {
+      if (!wantWake || wakeLock || !navigator.wakeLock) return;
+      try {
+        const lock = await navigator.wakeLock.request("screen");
+        wakeLock = lock;
+        lock.addEventListener("release", () => {
+          if (wakeLock === lock) wakeLock = null;
+        });
+      } catch (error) {
+        wakeLock = null;
+      }
+    }
+
+    async function dropWake() {
+      const lock = wakeLock;
+      wakeLock = null;
+      if (!lock) return;
+      try {
+        await lock.release();
+      } catch (error) {
+        /* el sistema ya la soltó */
+      }
+    }
+
+    wakeButton.addEventListener("click", () => {
+      wantWake = !wantWake;
+      localStorage.setItem(WAKE_KEY, wantWake ? "1" : "0");
+      paintWake();
+      if (wantWake) holdWake();
+      else dropWake();
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") holdWake();
+    });
+    document.addEventListener("pointerdown", () => {
+      if (wantWake && !wakeLock) holdWake();
+    });
+    paintWake();
+    holdWake();
   </script>
 </body>
 </html>

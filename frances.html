@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Francés C1 · checklist semanal</title>
+<style>
+  :root {
+    --bg: #f4f1ea;
+    --ink: #1c1915;
+    --muted: #6b645b;
+    --line: #e2dbd0;
+    --card: #fffdf8;
+    --accent: #1f4d3a;
+    --accent-soft: #e7f0eb;
+    --locked: #f7f4ef;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", Calibri, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.45;
+  }
+  main { max-width: 820px; margin: 0 auto; padding: 28px 16px 64px; }
+  h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: -0.03em; }
+  .lead { color: var(--muted); margin: 0 0 18px; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .stat b { display: block; font-size: 18px; }
+  .stat span { color: var(--muted); font-size: 12px; }
+  .bar { height: 8px; background: #e7e1d6; border-radius: 99px; overflow: hidden; margin: 8px 0 16px; }
+  .bar i { display: block; height: 100%; background: var(--accent); }
+  .filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  button.filter {
+    border: 1px solid var(--line);
+    background: transparent;
+    border-radius: 99px;
+    padding: 6px 12px;
+    cursor: pointer;
+    font: inherit;
+  }
+  button.filter.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  article {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    margin-bottom: 10px;
+    overflow: hidden;
+  }
+  article.locked { background: var(--locked); }
+  article.now { border-color: var(--accent); }
+  summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 12px 14px;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: baseline;
+  }
+  summary::-webkit-details-marker { display: none; }
+  .meta { color: var(--muted); font-size: 13px; padding: 0 14px 8px; }
+  label.item {
+    display: flex;
+    gap: 10px;
+    padding: 8px 14px 12px;
+    border-top: 1px solid var(--line);
+  }
+  label.item input { margin-top: 4px; width: 16px; height: 16px; }
+  .kind { display: block; font-size: 12px; color: var(--muted); }
+  .done span.task { text-decoration: line-through; color: var(--muted); }
+  .note { margin-top: 18px; color: var(--muted); font-size: 14px; }
+  a { color: var(--accent); }
+  @media (max-width: 700px) {
+    .stats { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Francés C1, semana a semana</h1>
+  <p class="lead">Cada semana se abre el domingo de inicio. Lo marcado se guarda en este navegador y se puede desmarcar. Examen el lunes 12 de abril de 2027.</p>
+  <div class="stats" id="stats"></div>
+  <div class="bar" id="bar" hidden><i id="fill"></i></div>
+  <div class="filters" id="filters"></div>
+  <div id="list"></div>
+  <p class="note">Prácticas de capitán de yate: <a href="./index.html">abrir el banco de preguntas</a> · <a href="https://github.com/Bullcarrier/CAPITAN-DAHSBOARD">repositorio</a></p>
+</main>
+<script>
+const MONTHS = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+const PHASES = { 1: "Fase 1 · Base", 2: "Fase 2 · Mecánica C1", 3: "Fase 3 · Simulacros" };
+const WEEKS = [
+  ["w1",1,"2026-11-30",1,"Education & Youth",[
+    ["Input","Read 2 Le Monde articles on university reforms."],
+    ["Grammar","Review all past tenses (imparfait, passé composé, plus-que-parfait) and accord du participe passé."],
+    ["Output","Write a 250-word opinion piece on remote learning."]
+  ]],
+  ["w2",2,"2026-12-07",1,"Work & Economy",[
+    ["Input","Listen to 2 France Culture segments on the 4-day workweek."],
+    ["Grammar","Master logical connectors of cause and consequence (faute de, d'autant plus que)."],
+    ["Output","Record a 5-minute summary of one podcast episode without notes."]
+  ]],
+  ["w3",3,"2026-12-14",1,"Environment & Climate",[
+    ["Input","Read a dossier in Courrier International on European energy."],
+    ["Grammar","Drill the subjunctive (subjonctif présent/passé) after verbs of doubt and emotion."],
+    ["Output","Debate environmental policies for 20 minutes using formal French."]
+  ]],
+  ["w4",4,"2026-12-21",1,"Technology & AI",[
+    ["Input","Watch a 30-min Arte documentary on artificial intelligence."],
+    ["Grammar","Build a 30-word glossary on digital ethics and nominalization."],
+    ["Output","Write a formal letter to the editor (lettre ouverte) about AI regulation."]
+  ]],
+  ["w5",5,"2026-12-28",1,"Health & Bioethics",[
+    ["Input","Read 2 articles on aging populations and healthcare systems."],
+    ["Grammar","Review conditional forms (conditionnel présent/passé) for hypotheses."],
+    ["Output","Do a timed 30-minute reading comprehension exercise from a B2/C1 workbook."]
+  ]],
+  ["w6",6,"2027-01-04",1,"Media & Information",[
+    ["Input","Listen to Le Téléphone Sonne (France Inter) on fake news."],
+    ["Grammar","Practice passive voice and impersonal constructions (il convient de, il s'avère que)."],
+    ["Output","Take a full diagnostic mock reading and listening section."]
+  ]],
+  ["w7",7,"2027-01-11",2,"Urbanism & Transport",[
+    ["Input","Read 3 opposing texts on car-free cities."],
+    ["Grammar","Learn the exact structure of the synthèse de documents (neutral tone, no personal opinion)."],
+    ["Output","Write your first untimed synthèse outline (plan détaillé) from those 3 texts."]
+  ]],
+  ["w8",8,"2027-01-18",2,"Culture & Heritage",[
+    ["Input","Listen to a podcast on museum restitution or cultural subsidies."],
+    ["Grammar","Master concession and opposition connectors (en revanche, certes… mais, néanmoins)."],
+    ["Output","Write a full 220-word synthèse de documents (untimed, focus on paraphrasing)."]
+  ]],
+  ["w9",9,"2027-01-25",2,"Justice & Society",[
+    ["Input","Read 2 long-form articles on prison reform or civic duty."],
+    ["Grammar","Drill relative pronouns (lequel, auquel, duquel, dont)."],
+    ["Output","Write a 250-word essai argumenté (thesis, antithesis, synthesis)."]
+  ]],
+  ["w10",10,"2027-02-01",2,"Globalization & Trade",[
+    ["Input","Watch a French economic debate (C dans l'air)."],
+    ["Grammar","Upgrade 20 basic B2 verbs and adjectives to C1 equivalents (augmenter → s'accroître)."],
+    ["Output","Do a 1-hour timed speaking prep and a 10-minute exposé."]
+  ]],
+  ["w11",11,"2027-02-08",2,"Science & Space",[
+    ["Input","Read 2 articles from Sciences et Avenir or Le Monde Science."],
+    ["Grammar","Practice expressing nuance, probability, and certainty."],
+    ["Output","Complete a full C1 Listening Comprehension past paper."]
+  ]],
+  ["w12",12,"2027-02-15",2,"Politics & Democracy",[
+    ["Input","Listen to political commentary on voter abstention or referendums."],
+    ["Grammar","Review gérondif, participe présent, and adjectif verbal."],
+    ["Output","Write a timed synthèse de documents in 90 minutes."]
+  ]],
+  ["w13",13,"2027-02-22",2,"Consumerism & Lifestyle",[
+    ["Input","Read a dossier on fast fashion or minimalist living."],
+    ["Grammar","Master idiomatic expressions and formal register shifts."],
+    ["Output","Complete a timed essai argumenté in 60 minutes."]
+  ]],
+  ["w14",14,"2027-03-01",3,"Language & Identity",[
+    ["Input","Read 2 articles on Francophonie or linguistic diversity."],
+    ["Grammar","Review common C1 pitfalls for Spanish speakers (false friends and gender errors)."],
+    ["Output","Full timed Writing mock exam (2h30: Synthèse + Essai)."]
+  ]],
+  ["w15",15,"2027-03-08",3,"Inequality & Gender",[
+    ["Input","Listen to a France Culture debate on workplace equality."],
+    ["Grammar","Memorize 15 high-utility transition phrases for oral presentations."],
+    ["Output","Full timed Speaking mock exam (1h prep + 30 min presentation and debate)."]
+  ]],
+  ["w16",16,"2027-03-15",3,"History & Memory",[
+    ["Input","Read 2 analytical essays on historical commemoration."],
+    ["Grammar","Drill sequence of tenses (concordance des temps) in reported speech."],
+    ["Output","Full timed Listening + Reading mock exam (1h30 total)."]
+  ]],
+  ["w17",17,"2027-03-22",3,"Art & Censorship",[
+    ["Input","Watch a cultural debate on cancel culture or artistic freedom."],
+    ["Grammar","Review your personal error log from Weeks 1–16."],
+    ["Output","Write one final timed synthèse and essai, focusing on clean grammar and time management."]
+  ]],
+  ["w18",18,"2027-03-29",3,"Mixed / Weakest Topics",[
+    ["Input","Do 2 past-paper listening exercises on your hardest accents and speeds."],
+    ["Grammar","Do a final sweep of prepositions after verbs and adjectives."],
+    ["Output","Complete one last full oral simulation under strict exam conditions."]
+  ]],
+  ["w19",19,"2027-04-05",3,"Exam Week Taper",[
+    ["Input","Light passive immersion only (French radio or podcasts at breakfast)."],
+    ["Grammar","Review your master sheet of essay templates and transition phrases."],
+    ["Output","Rest 48 hours before Monday, 12 April 2027."]
+  ]]
+];
+
+function isoToday() {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+}
+function addDays(iso, days) {
+  const [y,m,d] = iso.split("-").map(Number);
+  const dt = new Date(y, m-1, d+days);
+  return dt.getFullYear() + "-" + String(dt.getMonth()+1).padStart(2,"0") + "-" + String(dt.getDate()).padStart(2,"0");
+}
+function fmt(iso) {
+  const [y,m,d] = iso.split("-").map(Number);
+  return d + " " + MONTHS[m-1] + " " + y;
+}
+const today = isoToday();
+const KEY = "frances-c1-checks";
+let done = {};
+try { done = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { done = {}; }
+let filter = "open";
+
+function save() { localStorage.setItem(KEY, JSON.stringify(done)); }
+
+function render() {
+  const unlocked = WEEKS.filter(w => w[2] <= today);
+  const next = WEEKS.find(w => w[2] > today);
+  const current = [...unlocked].reverse().find(w => addDays(w[2], 6) >= today);
+  const openIds = unlocked.flatMap(w => [0,1,2].map(i => w[0] + "-" + i));
+  const checked = openIds.filter(id => done[id]).length;
+  document.getElementById("stats").innerHTML = [
+    ["<b>" + unlocked.length + "/19</b><span>Semanas abiertas</span>"],
+    ["<b>" + (openIds.length ? checked + "/" + openIds.length : "—") + "</b><span>Tareas hechas</span>"],
+    ["<b>" + (current ? "S" + current[1] : "—") + "</b><span>" + (current ? current[4] : "Ninguna en curso") + "</span>"],
+    ["<b>" + (next ? fmt(next[2]) : "Cerrado") + "</b><span>" + (next ? "S" + next[1] + " se abre" : "Plan ya abierto") + "</span>"]
+  ].map(s => "<div class='stat'>" + s + "</div>").join("");
+  const bar = document.getElementById("bar");
+  if (openIds.length) {
+    bar.hidden = false;
+    document.getElementById("fill").style.width = Math.round(100 * checked / openIds.length) + "%";
+  } else bar.hidden = true;
+
+  const filters = [["open","Abiertas"],["all","Las 19"],["1","Fase 1"],["2","Fase 2"],["3","Fase 3"]];
+  document.getElementById("filters").innerHTML = filters.map(([id, label]) =>
+    "<button class='filter" + (filter === id ? " on" : "") + "' data-f='" + id + "'>" + label + "</button>"
+  ).join("");
+  document.querySelectorAll("button.filter").forEach(b => b.onclick = () => { filter = b.dataset.f; render(); });
+
+  const visible = WEEKS.filter(w => {
+    if (filter === "open") return w[2] <= today;
+    if (filter === "1" || filter === "2" || filter === "3") return w[3] === Number(filter);
+    return true;
+  });
+  const list = document.getElementById("list");
+  if (!visible.length) {
+    list.innerHTML = "<p class='lead'>Todavía no hay semana abierta. La semana 1 se abre el " + fmt(WEEKS[0][2]) + ". Usa “Las 19” para ver el plan bloqueado.</p>";
+    return;
+  }
+  list.innerHTML = visible.map(w => {
+    const open = w[2] <= today;
+    const isNow = current && current[0] === w[0];
+    const ids = [0,1,2].map(i => w[0] + "-" + i);
+    const nDone = ids.filter(id => done[id] && open).length;
+    const items = w[5].map((item, i) => {
+      const id = w[0] + "-" + i;
+      const checkedAttr = open && done[id] ? " checked" : "";
+      const dis = open ? "" : " disabled";
+      return "<label class='item" + (open && done[id] ? " done" : "") + "'><input type='checkbox' data-id='" + id + "'" + checkedAttr + dis + "><span><span class='kind'>" + item[0] + "</span><span class='task'>" + item[1] + "</span></span></label>";
+    }).join("");
+    return "<article class='" + (open ? "" : "locked") + (isNow ? " now" : "") + "'><details" + (isNow ? " open" : "") + "><summary><strong>S" + w[1] + " · " + fmt(w[2]) + " · " + w[4] + "</strong><span>" + (open ? nDone + "/3" : "Cerrada") + "</span></summary><div class='meta'>" + PHASES[w[3]] + " · hasta " + fmt(addDays(w[2], 6)) + (isNow ? " · esta semana" : "") + "</div>" + items + "</details></article>";
+  }).join("");
+  list.querySelectorAll("input[type=checkbox]").forEach(input => {
+    input.onchange = () => {
+      done[input.dataset.id] = input.checked;
+      save();
+      render();
+    };
+  });
+}
+render();
+</script>
+</body>
+</html>
